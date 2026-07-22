@@ -1,6 +1,7 @@
 --[[
   BUILD A BOAT FARMING - DEFINITIVA CON GESTIONE ERRORI
   Non si blocca se leaderstats non esiste
+  La partenza è dinamica: posizione attuale del personaggio all'avvio
 ]]
 
 local player = game.Players.LocalPlayer
@@ -82,7 +83,8 @@ local function createGUI()
 end
 
 -- ===== COORDINATE =====
-local startPos = Vector3.new(-483.83, 9.69, 293.12)
+-- Ora startPos sarà dinamico, lo imposteremo all'avvio
+local startPos = Vector3.new(-483.83, 9.69, 293.12)  -- fallback se non si riesce a leggere la posizione
 local stages = {
     Vector3.new(-48.13, 31.66, 1291.60),
     Vector3.new(-48.85, 36.10, 2080.88),
@@ -126,6 +128,20 @@ spawn(function()
         
         -- Collega i pulsanti
         startBtn.MouseButton1Click:Connect(function()
+            -- === LEGGI LA POSIZIONE ATTUALE DEL PERSONAGGIO ===
+            local char = player.Character
+            if char then
+                local root = char:FindFirstChild("HumanoidRootPart")
+                if root then
+                    startPos = root.Position
+                    print("📍 Nuova partenza impostata a:", startPos)
+                else
+                    print("⚠️ HumanoidRootPart non trovato, uso posizione fissa")
+                end
+            else
+                print("⚠️ Personaggio non trovato, uso posizione fissa")
+            end
+            
             farmingRunning = true
             statusLabel.Text = "▶ Avviato!"
             print("▶ Farming avviato")
@@ -196,7 +212,7 @@ spawn(function()
                     tween.Completed:Wait()
                 end
 
-                -- 4. Esegui il ciclo
+                -- 4. Esegui il ciclo (usa startPos dinamico)
                 statusLabel.Text = "📍 Partenza..."
                 teleport(startPos)
                 wait(1.5)
@@ -242,7 +258,7 @@ spawn(function()
                 if not farmingRunning then return end
 
                 statusLabel.Text = "🔄 Reclamo..."
-                teleport(startPos)
+                teleport(startPos)   -- torna alla partenza dinamica
                 wait(1.5)
                 if not farmingRunning then return end
 
