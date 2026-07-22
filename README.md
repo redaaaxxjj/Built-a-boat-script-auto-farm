@@ -1,2 +1,1 @@
-# Built-a-boat-script-auto-farm, When you use the script first launch it , get in you're boat then click launch, and then click the green button to autofarm, you need to keep doing this everytime, the script is still in beta.
-If u do the wrong steps ,you're gonna get banned
+When you use the script the first time, it will appear a GUI , but when you reach the end and respawn, the GUI will despawn but the script is still function you just need to spawn your boat and click launch and it will go.
