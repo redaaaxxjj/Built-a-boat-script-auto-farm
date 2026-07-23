@@ -1,17 +1,19 @@
 --[[
-  BUILD A BOAT FARMING - VERSIONE XENO (DRAGGABILE)
+  BUILD A BOAT FARMING - FLY STABILE (come Infinite Yield)
+  - Il personaggio rimane sospeso in aria senza cadere
+  - Movimento fluido e controllato
+  - PAUSA DI 1 SECONDO SU OGNI FASE
   - GUI si ricrea dopo la morte
+  - Auto-riavvio dopo il reset
   - Tasto F per avviare/fermare
-  - La GUI si può trascinare ovunque con il mouse
 ]]
 
 local player = game.Players.LocalPlayer
 local farmingRunning = false
 local statusLabel = nil
 local screenGui = nil
-local dragging = false
-local dragStart = nil
-local framePos = nil
+local flyBodyVelocity = nil
+local flyBodyPosition = nil
 
 -- ===== COORDINATE =====
 local startPos = Vector3.new(-483.83, 9.69, 293.12)
@@ -29,61 +31,116 @@ local stages = {
 }
 local chestPos = Vector3.new(-55.66, -360.05, 9488.53)
 
--- ===== FUNZIONI BASE =====
-local function getBoat()
-    local char = player.Character
-    if not char then return nil end
+-- ===== FUNZIONE PER ATTIVARE IL VOLO STABILE =====
+local function enableFly(char)
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    
+    -- Rimuovi eventuali fly precedenti
+    if flyBodyVelocity then flyBodyVelocity:Destroy() end
+    if flyBodyPosition then flyBodyPosition:Destroy() end
+    
+    -- Crea un BodyVelocity per tenere il personaggio in aria
+    flyBodyVelocity = Instance.new("BodyVelocity")
+    flyBodyVelocity.Velocity = Vector3.new(0, 0, 0)
+    flyBodyVelocity.MaxForce = Vector3.new(4000, 4000, 4000)
+    flyBodyVelocity.Parent = root
+    
+    -- Crea un BodyPosition per mantenere l'altezza (anti-caduta)
+    flyBodyPosition = Instance.new("BodyPosition")
+    flyBodyPosition.MaxForce = Vector3.new(4000, 4000, 4000)
+    flyBodyPosition.D = 500
+    flyBodyPosition.P = 5000
+    flyBodyPosition.Position = root.Position
+    flyBodyPosition.Parent = root
+    
+    -- Disabilita la gravità per il personaggio
     local humanoid = char:FindFirstChild("Humanoid")
-    if not humanoid then return nil end
-    local seat = humanoid.SeatPart
-    if not seat then return nil end
-    local current = seat
-    while current do
-        current = current.Parent
-        if current and current:IsA("Model") then
-            return current, char, humanoid
-        end
+    if humanoid then
+        humanoid.PlatformStand = true
+        humanoid.Sit = true  -- lo mette in posizione "seduto" ma in aria
     end
-    return nil
+    
+    print("🕊️ Volo stabile attivato!")
 end
 
-local function teleportBoatAndPlayer(pos)
-    local boat = getBoat()
-    if boat then
-        local primary = boat.PrimaryPart or boat:FindFirstChildOfClass("BasePart")
-        if primary then
-            primary.CFrame = CFrame.new(pos)
-        end
+-- ===== FUNZIONE PER DISATTIVARE IL VOLO =====
+local function disableFly()
+    if flyBodyVelocity then
+        flyBodyVelocity:Destroy()
+        flyBodyVelocity = nil
+    end
+    if flyBodyPosition then
+        flyBodyPosition:Destroy()
+        flyBodyPosition = nil
     end
     local char = player.Character
-    if char and char:FindFirstChild("HumanoidRootPart") then
-        char.HumanoidRootPart.CFrame = CFrame.new(pos)
-    end
-end
-
-local function moveForward(dist, steps)
-    steps = steps or 8
-    local boat = getBoat()
-    if not boat then return end
-    local primary = boat.PrimaryPart or boat:FindFirstChildOfClass("BasePart")
-    if not primary then return end
-    local startPos = primary.Position
-    local targetPos = startPos + Vector3.new(0, 0, dist)
-    local stepVec = (targetPos - startPos) / steps
-    for i = 1, steps do
-        if not farmingRunning then break end
-        local newPos = startPos + stepVec * i
-        primary.CFrame = CFrame.new(newPos)
-        local char = player.Character
-        if char and char:FindFirstChild("HumanoidRootPart") then
-            char.HumanoidRootPart.CFrame = CFrame.new(newPos)
+    if char then
+        local humanoid = char:FindFirstChild("Humanoid")
+        if humanoid then
+            humanoid.PlatformStand = false
+            humanoid.Sit = false
         end
-        wait(0.05)
     end
-    primary.CFrame = CFrame.new(targetPos)
+    print("🛑 Volo disattivato")
 end
 
--- ===== CREA GUI (DRAGGABILE) =====
+-- ===== FUNZIONE DI VOLO FLUIDO (con fly attivo) =====
+local function flyTo(targetPos, speed)
+    speed = speed or 35
+    local char = player.Character
+    if not char then return false end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+    
+    -- Assicura che il volo sia attivo
+    if not flyBodyVelocity or not flyBodyPosition then
+        enableFly(char)
+    end
+    
+    local startPos = root.Position
+    local distance = (targetPos - startPos).Magnitude
+    if distance < 1 then return true end
+    
+    local steps = math.max(10, distance / speed)
+    steps = math.min(steps, 50)
+    
+    for i = 1, steps do
+        if not farmingRunning then return false end
+        local alpha = i / steps
+        local eased = alpha * alpha * (3 - 2 * alpha)
+        local newPos = startPos:lerp(targetPos, eased)
+        
+        -- Aggiorna la posizione del BodyPosition per mantenere l'altezza
+        if flyBodyPosition then
+            flyBodyPosition.Position = newPos
+        end
+        root.CFrame = CFrame.new(newPos)
+        wait(0.02)
+    end
+    
+    root.CFrame = CFrame.new(targetPos)
+    if flyBodyPosition then
+        flyBodyPosition.Position = targetPos
+    end
+    return true
+end
+
+-- ===== FUNZIONE PER ASPETTARE IL PERSONAGGIO =====
+local function waitForCharacter()
+    local char = player.Character
+    while not char do
+        wait(0.5)
+        char = player.Character
+    end
+    while not char:FindFirstChild("HumanoidRootPart") do
+        wait(0.2)
+    end
+    return char
+end
+
+-- ===== CREA GUI =====
 local function createGUI()
     if screenGui then screenGui:Destroy() end
 
@@ -103,61 +160,16 @@ local function createGUI()
     corner.CornerRadius = UDim.new(0, 8)
     corner.Parent = mainFrame
 
-    -- ===== SISTEMA DRAG =====
-    local function startDrag()
-        dragging = true
-        dragStart = game:GetService("UserInputService"):GetMouseLocation()
-        framePos = mainFrame.Position
-    end
-
-    local function stopDrag()
-        dragging = false
-    end
-
-    local function updateDrag()
-        if not dragging then return end
-        local mousePos = game:GetService("UserInputService"):GetMouseLocation()
-        local delta = mousePos - dragStart
-        local newPos = UDim2.new(
-            framePos.X.Scale,
-            framePos.X.Offset + delta.X,
-            framePos.Y.Scale,
-            framePos.Y.Offset + delta.Y
-        )
-        mainFrame.Position = newPos
-    end
-
-    -- Eventi mouse per il drag
-    mainFrame.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            startDrag()
-        end
-    end)
-
-    mainFrame.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            stopDrag()
-        end
-    end)
-
-    game:GetService("UserInputService").InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement then
-            updateDrag()
-        end
-    end)
-
-    -- Titolo
     local title = Instance.new("TextLabel")
     title.Size = UDim2.new(1, 0, 0, 30)
     title.Position = UDim2.new(0, 0, 0, 5)
     title.BackgroundTransparency = 1
-    title.Text = "Auto farm Reda"
+    title.Text = "Auto farm (Fly)"
     title.TextColor3 = Color3.fromRGB(255, 255, 255)
     title.TextSize = 18
     title.Font = Enum.Font.GothamBold
     title.Parent = mainFrame
 
-    -- Status
     statusLabel = Instance.new("TextLabel")
     statusLabel.Size = UDim2.new(1, 0, 0, 20)
     statusLabel.Position = UDim2.new(0, 0, 0, 35)
@@ -169,7 +181,6 @@ local function createGUI()
     statusLabel.Name = "StatusLabel"
     statusLabel.Parent = mainFrame
 
-    -- Avvia
     local startBtn = Instance.new("TextButton")
     startBtn.Size = UDim2.new(0, 90, 0, 30)
     startBtn.Position = UDim2.new(0, 10, 0, 65)
@@ -183,7 +194,6 @@ local function createGUI()
     btnCorner1.CornerRadius = UDim.new(0, 4)
     btnCorner1.Parent = startBtn
 
-    -- Ferma
     local stopBtn = Instance.new("TextButton")
     stopBtn.Size = UDim2.new(0, 90, 0, 30)
     stopBtn.Position = UDim2.new(0, 110, 0, 65)
@@ -197,19 +207,21 @@ local function createGUI()
     btnCorner2.CornerRadius = UDim.new(0, 4)
     btnCorner2.Parent = stopBtn
 
-    -- Pulsanti
     startBtn.MouseButton1Click:Connect(function()
         local char = player.Character
         if char and char:FindFirstChild("HumanoidRootPart") then
             startPos = char.HumanoidRootPart.Position
+            -- Attiva il volo stabile
+            enableFly(char)
         end
         farmingRunning = true
         if statusLabel then statusLabel.Text = "▶ Avviato!" end
-        print("▶ Farming avviato")
+        print("▶ Farming avviato (fly stabile)")
     end)
 
     stopBtn.MouseButton1Click:Connect(function()
         farmingRunning = false
+        disableFly()
         if statusLabel then statusLabel.Text = "⏹ Fermato!" end
         print("⏹ Farming fermato")
     end)
@@ -220,16 +232,18 @@ game:GetService("UserInputService").InputBegan:Connect(function(input, gameProce
     if gameProcessed then return end
     if input.KeyCode == Enum.KeyCode.F then
         farmingRunning = not farmingRunning
-        if statusLabel then
-            statusLabel.Text = farmingRunning and "▶ Avviato!" or "⏹ Fermato!"
-        end
-        print(farmingRunning and "▶ Farming attivato (F)" or "⏹ Farming fermato (F)")
         if farmingRunning then
             local char = player.Character
             if char and char:FindFirstChild("HumanoidRootPart") then
                 startPos = char.HumanoidRootPart.Position
+                enableFly(char)
             end
+            if statusLabel then statusLabel.Text = "▶ Avviato!" end
+        else
+            disableFly()
+            if statusLabel then statusLabel.Text = "⏹ Fermato!" end
         end
+        print(farmingRunning and "▶ Farming attivato (F)" or "⏹ Farming fermato (F)")
     end
 end)
 
@@ -238,6 +252,7 @@ createGUI()
 
 spawn(function()
     while true do
+        -- Se la GUI è stata distrutta, la ricrea
         if not screenGui or not screenGui.Parent then
             createGUI()
             if statusLabel then
@@ -245,6 +260,7 @@ spawn(function()
             end
         end
 
+        -- Aspetta che il farming sia attivo
         while not farmingRunning do
             wait(1)
             if not screenGui or not screenGui.Parent then
@@ -255,51 +271,44 @@ spawn(function()
             end
         end
 
+        -- ===== CICLO DI FARMING (FLY STABILE + PAUSA 1 SEC) =====
         local success = pcall(function()
-            local char = player.Character
-            while not char and farmingRunning do
-                if statusLabel then statusLabel.Text = "⏳ Personaggio..." end
-                wait(0.5)
-                char = player.Character
-            end
+            -- 1. Aspetta il personaggio
+            if statusLabel then statusLabel.Text = "📍 Aspetto personaggio..." end
+            local char = waitForCharacter()
             if not farmingRunning then return end
-
-            local boat = getBoat()
-            while not boat and farmingRunning do
-                if statusLabel then statusLabel.Text = "⏳ Barca..." end
-                wait(0.5)
-                boat = getBoat()
+            
+            -- 2. Attiva il volo se non è già attivo
+            if not flyBodyVelocity or not flyBodyPosition then
+                enableFly(char)
             end
+            
+            -- 3. Vola alla partenza
+            if statusLabel then statusLabel.Text = "🕊️ Volo alla partenza..." end
+            flyTo(startPos, 40)
             if not farmingRunning then return end
+            wait(0.5)
 
-            local primary = boat.PrimaryPart or boat:FindFirstChildOfClass("BasePart")
-            if not primary then
-                if statusLabel then statusLabel.Text = "❌ Errore!" end
-                wait(2)
-                return
-            end
-
-            if statusLabel then statusLabel.Text = "📍 Partenza..." end
-            teleportBoatAndPlayer(startPos)
-            wait(1.5)
-            if not farmingRunning then return end
-
+            -- 4. Percorri gli stage con PAUSA di 1 secondo su ogni fase
             for i, pos in ipairs(stages) do
                 if not farmingRunning then return end
-                if statusLabel then statusLabel.Text = "📍 Fase " .. i end
-                teleportBoatAndPlayer(pos)
-                wait(0.8)
+                if statusLabel then statusLabel.Text = "🕊️ Fase " .. i .. " (attesa 1 sec)" end
+                flyTo(pos, 45)
                 if not farmingRunning then return end
-                moveForward(20, 6)
-                wait(0.8)
+                wait(0.3)   -- breve pausa dopo l'arrivo
+                if not farmingRunning then return end
+                wait(1)     -- <--- PAUSA DI 1 SECONDO SU OGNI FASE
+                if not farmingRunning then return end
             end
             if not farmingRunning then return end
 
-            if statusLabel then statusLabel.Text = "💰 Baule..." end
-            teleportBoatAndPlayer(chestPos)
-            wait(2)
+            -- 5. Vola al baule
+            if statusLabel then statusLabel.Text = "🕊️ Volo al baule..." end
+            flyTo(chestPos, 50)
             if not farmingRunning then return end
+            wait(1.5)
 
+            -- 6. Aspetta la ricompensa
             if player:FindFirstChild("leaderstats") then
                 local coins = player.leaderstats:FindFirstChild("Coins") or 
                               player.leaderstats:FindFirstChild("Money")
@@ -319,11 +328,13 @@ spawn(function()
             end
             if not farmingRunning then return end
 
-            if statusLabel then statusLabel.Text = "🔄 Rientro..." end
-            teleportBoatAndPlayer(startPos)
-            wait(1.5)
+            -- 7. Vola alla partenza
+            if statusLabel then statusLabel.Text = "🕊️ Rientro..." end
+            flyTo(startPos, 40)
             if not farmingRunning then return end
+            wait(0.5)
 
+            -- 8. Clicca "Reclama"
             for _, v in pairs(player.PlayerGui:GetDescendants()) do
                 if v:IsA("TextButton") then
                     local txt = string.lower(v.Text or "")
@@ -335,18 +346,35 @@ spawn(function()
                 end
             end
 
-            if statusLabel then statusLabel.Text = "⏳ Completato!" end
-            print("✅ Ciclo completato")
+            if statusLabel then statusLabel.Text = "⏳ Ciclo completato!" end
+            print("✅ Ciclo completato (fly stabile + pausa 1s)")
             wait(2)
         end)
 
+        -- ===== GESTIONE DEL RESET (morte) =====
         if not success then
-            if statusLabel then statusLabel.Text = "⚠️ Riavvio..." end
-            print("Errore, riavvio tra 3 secondi")
-            wait(3)
+            if statusLabel then statusLabel.Text = "⚠️ Attendo respawn..." end
+            print("Errore o reset, attendo il respawn...")
+            disableFly()  -- pulisce il fly vecchio
+            local char = player.Character
+            while not char and farmingRunning do
+                wait(0.5)
+                char = player.Character
+            end
+            if farmingRunning and char then
+                if statusLabel then statusLabel.Text = "🔄 Riavvio..." end
+                print("🔄 Personaggio respawnato, riavvio...")
+                wait(1)
+            end
+        end
+
+        if not farmingRunning then
+            wait(1)
         end
     end
 end)
 
-print("✅ Farming caricato! Premi F per avviare/fermare.")
-print("   La GUI si può trascinare tenendo premuto il mouse.")
+print("✅ Farming FLY STABILE + PAUSA 1 SECONDO caricato!")
+print("   - Il personaggio rimane sospeso in aria (come Infinite Yield)")
+print("   - Su ogni fase aspetta 1 secondo")
+print("   - Premi F per avviare/fermare")
