@@ -1,17 +1,20 @@
 --[[
-  BUILD A BOAT FARMING - VERSIONE XENO CON RECUPERO GUI E KEYBIND
-  - La GUI si ricrea se viene distrutta (morte/respawn)
-  - Tasto F per fermare/avviare in emergenza
+  BUILD A BOAT FARMING - VERSIONE XENO (DRAGGABILE)
+  - GUI si ricrea dopo la morte
+  - Tasto F per avviare/fermare
+  - La GUI si può trascinare ovunque con il mouse
 ]]
 
 local player = game.Players.LocalPlayer
-local guiCreated = false
 local farmingRunning = false
 local statusLabel = nil
 local screenGui = nil
+local dragging = false
+local dragStart = nil
+local framePos = nil
 
 -- ===== COORDINATE =====
-local startPos = Vector3.new(-483.83, 9.69, 293.12)  -- fallback
+local startPos = Vector3.new(-483.83, 9.69, 293.12)
 local stages = {
     Vector3.new(-48.13, 31.66, 1291.60),
     Vector3.new(-48.85, 36.10, 2080.88),
@@ -26,7 +29,7 @@ local stages = {
 }
 local chestPos = Vector3.new(-55.66, -360.05, 9488.53)
 
--- ===== FUNZIONI =====
+-- ===== FUNZIONI BASE =====
 local function getBoat()
     local char = player.Character
     if not char then return nil end
@@ -53,16 +56,13 @@ local function teleportBoatAndPlayer(pos)
         end
     end
     local char = player.Character
-    if char then
-        local root = char:FindFirstChild("HumanoidRootPart")
-        if root then
-            root.CFrame = CFrame.new(pos)
-        end
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        char.HumanoidRootPart.CFrame = CFrame.new(pos)
     end
 end
 
 local function moveForward(dist, steps)
-    steps = steps or 10
+    steps = steps or 8
     local boat = getBoat()
     if not boat then return end
     local primary = boat.PrimaryPart or boat:FindFirstChildOfClass("BasePart")
@@ -83,20 +83,16 @@ local function moveForward(dist, steps)
     primary.CFrame = CFrame.new(targetPos)
 end
 
--- ===== CREA GUI (ricreabile) =====
+-- ===== CREA GUI (DRAGGABILE) =====
 local function createGUI()
-    -- Distrugge la vecchia se esiste
-    if screenGui then
-        screenGui:Destroy()
-        screenGui = nil
-    end
+    if screenGui then screenGui:Destroy() end
 
     screenGui = Instance.new("ScreenGui")
     screenGui.Name = "FarmingGUI"
     screenGui.Parent = player.PlayerGui
 
     local mainFrame = Instance.new("Frame")
-    mainFrame.Size = UDim2.new(0, 210, 0, 130)
+    mainFrame.Size = UDim2.new(0, 220, 0, 120)
     mainFrame.Position = UDim2.new(0, 10, 0, 10)
     mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
     mainFrame.BackgroundTransparency = 0.1
@@ -107,6 +103,50 @@ local function createGUI()
     corner.CornerRadius = UDim.new(0, 8)
     corner.Parent = mainFrame
 
+    -- ===== SISTEMA DRAG =====
+    local function startDrag()
+        dragging = true
+        dragStart = game:GetService("UserInputService"):GetMouseLocation()
+        framePos = mainFrame.Position
+    end
+
+    local function stopDrag()
+        dragging = false
+    end
+
+    local function updateDrag()
+        if not dragging then return end
+        local mousePos = game:GetService("UserInputService"):GetMouseLocation()
+        local delta = mousePos - dragStart
+        local newPos = UDim2.new(
+            framePos.X.Scale,
+            framePos.X.Offset + delta.X,
+            framePos.Y.Scale,
+            framePos.Y.Offset + delta.Y
+        )
+        mainFrame.Position = newPos
+    end
+
+    -- Eventi mouse per il drag
+    mainFrame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            startDrag()
+        end
+    end)
+
+    mainFrame.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            stopDrag()
+        end
+    end)
+
+    game:GetService("UserInputService").InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            updateDrag()
+        end
+    end)
+
+    -- Titolo
     local title = Instance.new("TextLabel")
     title.Size = UDim2.new(1, 0, 0, 30)
     title.Position = UDim2.new(0, 0, 0, 5)
@@ -117,6 +157,7 @@ local function createGUI()
     title.Font = Enum.Font.GothamBold
     title.Parent = mainFrame
 
+    -- Status
     statusLabel = Instance.new("TextLabel")
     statusLabel.Size = UDim2.new(1, 0, 0, 20)
     statusLabel.Position = UDim2.new(0, 0, 0, 35)
@@ -128,45 +169,39 @@ local function createGUI()
     statusLabel.Name = "StatusLabel"
     statusLabel.Parent = mainFrame
 
+    -- Avvia
     local startBtn = Instance.new("TextButton")
-    startBtn.Size = UDim2.new(0, 85, 0, 30)
+    startBtn.Size = UDim2.new(0, 90, 0, 30)
     startBtn.Position = UDim2.new(0, 10, 0, 65)
     startBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 80)
     startBtn.Text = "▶ Avvia"
     startBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
     startBtn.TextSize = 14
     startBtn.Font = Enum.Font.GothamBold
-    startBtn.Name = "StartBtn"
     startBtn.Parent = mainFrame
-
     local btnCorner1 = Instance.new("UICorner")
     btnCorner1.CornerRadius = UDim.new(0, 4)
     btnCorner1.Parent = startBtn
 
+    -- Ferma
     local stopBtn = Instance.new("TextButton")
-    stopBtn.Size = UDim2.new(0, 85, 0, 30)
-    stopBtn.Position = UDim2.new(0, 105, 0, 65)
+    stopBtn.Size = UDim2.new(0, 90, 0, 30)
+    stopBtn.Position = UDim2.new(0, 110, 0, 65)
     stopBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
     stopBtn.Text = "■ Ferma"
     stopBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
     stopBtn.TextSize = 14
     stopBtn.Font = Enum.Font.GothamBold
-    stopBtn.Name = "StopBtn"
     stopBtn.Parent = mainFrame
-
     local btnCorner2 = Instance.new("UICorner")
     btnCorner2.CornerRadius = UDim.new(0, 4)
     btnCorner2.Parent = stopBtn
 
-    -- Collegamento pulsanti
+    -- Pulsanti
     startBtn.MouseButton1Click:Connect(function()
         local char = player.Character
-        if char then
-            local root = char:FindFirstChild("HumanoidRootPart")
-            if root then
-                startPos = root.Position
-                print("📍 Partenza aggiornata a:", startPos)
-            end
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            startPos = char.HumanoidRootPart.Position
         end
         farmingRunning = true
         if statusLabel then statusLabel.Text = "▶ Avviato!" end
@@ -178,11 +213,9 @@ local function createGUI()
         if statusLabel then statusLabel.Text = "⏹ Fermato!" end
         print("⏹ Farming fermato")
     end)
-
-    guiCreated = true
 end
 
--- ===== KEYBIND (tasto F per toggle) =====
+-- ===== KEYBIND (Tasto F) =====
 game:GetService("UserInputService").InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if input.KeyCode == Enum.KeyCode.F then
@@ -190,39 +223,30 @@ game:GetService("UserInputService").InputBegan:Connect(function(input, gameProce
         if statusLabel then
             statusLabel.Text = farmingRunning and "▶ Avviato!" or "⏹ Fermato!"
         end
-        print(farmingRunning and "▶ Farming attivato da tasto F" or "⏹ Farming fermato da tasto F")
+        print(farmingRunning and "▶ Farming attivato (F)" or "⏹ Farming fermato (F)")
         if farmingRunning then
-            -- Se si riavvia, aggiorna la posizione di partenza
             local char = player.Character
-            if char then
-                local root = char:FindFirstChild("HumanoidRootPart")
-                if root then
-                    startPos = root.Position
-                end
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                startPos = char.HumanoidRootPart.Position
             end
         end
     end
 end)
 
 -- ===== THREAD PRINCIPALE =====
-createGUI()  -- crea la GUI iniziale
+createGUI()
 
 spawn(function()
     while true do
-        -- Controllo periodico: se la GUI è stata distrutta, la ricreiamo
         if not screenGui or not screenGui.Parent then
-            print("🔄 GUI persa, ricreazione...")
             createGUI()
-            -- Aggiorna lo stato nel label appena ricreato
             if statusLabel then
                 statusLabel.Text = farmingRunning and "▶ Avviato!" or "⏹ Fermato!"
             end
         end
 
-        -- Aspetta che il farming sia attivo
         while not farmingRunning do
             wait(1)
-            -- Ricontrolla la GUI anche durante l'attesa
             if not screenGui or not screenGui.Parent then
                 createGUI()
                 if statusLabel then
@@ -231,11 +255,10 @@ spawn(function()
             end
         end
 
-        -- Esegui un ciclo di farming
         local success = pcall(function()
             local char = player.Character
             while not char and farmingRunning do
-                if statusLabel then statusLabel.Text = "⏳ Attendo personaggio..." end
+                if statusLabel then statusLabel.Text = "⏳ Personaggio..." end
                 wait(0.5)
                 char = player.Character
             end
@@ -243,7 +266,7 @@ spawn(function()
 
             local boat = getBoat()
             while not boat and farmingRunning do
-                if statusLabel then statusLabel.Text = "⏳ Attendo barca..." end
+                if statusLabel then statusLabel.Text = "⏳ Barca..." end
                 wait(0.5)
                 boat = getBoat()
             end
@@ -251,7 +274,7 @@ spawn(function()
 
             local primary = boat.PrimaryPart or boat:FindFirstChildOfClass("BasePart")
             if not primary then
-                if statusLabel then statusLabel.Text = "❌ Barca senza parti!" end
+                if statusLabel then statusLabel.Text = "❌ Errore!" end
                 wait(2)
                 return
             end
@@ -267,7 +290,7 @@ spawn(function()
                 teleportBoatAndPlayer(pos)
                 wait(0.8)
                 if not farmingRunning then return end
-                moveForward(20, 8)
+                moveForward(20, 6)
                 wait(0.8)
             end
             if not farmingRunning then return end
@@ -277,25 +300,21 @@ spawn(function()
             wait(2)
             if not farmingRunning then return end
 
-            local coins = nil
             if player:FindFirstChild("leaderstats") then
-                coins = player.leaderstats:FindFirstChild("Coins") or 
-                        player.leaderstats:FindFirstChild("Money") or
-                        player.leaderstats:FindFirstChild("Gold")
-            end
-            
-            if coins then
-                local startCoins = coins.Value
-                for _ = 1, 15 do
-                    if not farmingRunning then return end
-                    wait(1)
-                    if coins.Value > startCoins then
-                        if statusLabel then statusLabel.Text = "✅ Ricompensa ottenuta!" end
-                        break
+                local coins = player.leaderstats:FindFirstChild("Coins") or 
+                              player.leaderstats:FindFirstChild("Money")
+                if coins then
+                    local startCoins = coins.Value
+                    for _ = 1, 15 do
+                        if not farmingRunning then return end
+                        wait(1)
+                        if coins.Value > startCoins then
+                            if statusLabel then statusLabel.Text = "✅ Ricompensa!" end
+                            break
+                        end
                     end
                 end
             else
-                if statusLabel then statusLabel.Text = "💰 In attesa ricompensa..." end
                 wait(10)
             end
             if not farmingRunning then return end
@@ -316,18 +335,18 @@ spawn(function()
                 end
             end
 
-            if statusLabel then statusLabel.Text = "⏳ Ciclo completato!" end
+            if statusLabel then statusLabel.Text = "⏳ Completato!" end
             print("✅ Ciclo completato")
             wait(2)
         end)
 
         if not success then
-            if statusLabel then statusLabel.Text = "⚠️ Errore, riavvio..." end
-            print("⚠️ Errore nel farming, riavvio tra 3 secondi")
+            if statusLabel then statusLabel.Text = "⚠️ Riavvio..." end
+            print("Errore, riavvio tra 3 secondi")
             wait(3)
         end
     end
 end)
 
-print("✅ Farming XENO con recupero GUI e tasto F caricato!")
-print("   Premi F per avviare/fermare (toggle) anche se la GUI scompare.")
+print("✅ Farming caricato! Premi F per avviare/fermare.")
+print("   La GUI si può trascinare tenendo premuto il mouse.")
