@@ -1,5 +1,6 @@
 --[[
   BUILD A BOAT FARMING - FLY STABILE (come Infinite Yield)
+  - GUI DRAGGABILE (trascina con il mouse)
   - Il personaggio rimane sospeso in aria senza cadere
   - Movimento fluido e controllato
   - PAUSA DI 1 SECONDO SU OGNI FASE
@@ -15,7 +16,12 @@ local statusLabel = nil
 local screenGui = nil
 local flyBodyVelocity = nil
 local flyBodyPosition = nil
-local restartFarming = false  -- FLAG PER FORZARE IL RESTART
+local restartFarming = false
+
+-- ===== VARIABILI PER DRAG =====
+local dragging = false
+local dragStart = nil
+local framePos = nil
 
 -- ===== COORDINATE =====
 local startPos = Vector3.new(-483.83, 9.69, 293.12)
@@ -106,7 +112,7 @@ local function flyTo(targetPos, speed)
     
     for i = 1, steps do
         if not farmingRunning then return false end
-        if restartFarming then return false end  -- ESCE SE DEVE RESTARTARE
+        if restartFarming then return false end
         local alpha = i / steps
         local eased = alpha * alpha * (3 - 2 * alpha)
         local newPos = startPos:lerp(targetPos, eased)
@@ -176,12 +182,12 @@ local function waitForReset()
     if farmingRunning then
         if statusLabel then statusLabel.Text = "🔄 Respawn completato!" end
         print("🔄 Personaggio respawnato, riavvio del farming")
-        restartFarming = true  -- <--- FORZA IL RESTART
+        restartFarming = true
         wait(1)
     end
 end
 
--- ===== CREA GUI =====
+-- ===== CREA GUI (DRAGGABILE) =====
 local function createGUI()
     if screenGui then screenGui:Destroy() end
 
@@ -201,6 +207,49 @@ local function createGUI()
     corner.CornerRadius = UDim.new(0, 8)
     corner.Parent = mainFrame
 
+    -- ===== SISTEMA DRAG =====
+    local function startDrag()
+        dragging = true
+        dragStart = game:GetService("UserInputService"):GetMouseLocation()
+        framePos = mainFrame.Position
+    end
+
+    local function stopDrag()
+        dragging = false
+    end
+
+    local function updateDrag()
+        if not dragging then return end
+        local mousePos = game:GetService("UserInputService"):GetMouseLocation()
+        local delta = mousePos - dragStart
+        local newPos = UDim2.new(
+            framePos.X.Scale,
+            framePos.X.Offset + delta.X,
+            framePos.Y.Scale,
+            framePos.Y.Offset + delta.Y
+        )
+        mainFrame.Position = newPos
+    end
+
+    mainFrame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            startDrag()
+        end
+    end)
+
+    mainFrame.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            stopDrag()
+        end
+    end)
+
+    game:GetService("UserInputService").InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            updateDrag()
+        end
+    end)
+
+    -- ===== TITOLO =====
     local title = Instance.new("TextLabel")
     title.Size = UDim2.new(1, 0, 0, 30)
     title.Position = UDim2.new(0, 0, 0, 5)
@@ -211,6 +260,7 @@ local function createGUI()
     title.Font = Enum.Font.GothamBold
     title.Parent = mainFrame
 
+    -- ===== STATUS =====
     statusLabel = Instance.new("TextLabel")
     statusLabel.Size = UDim2.new(1, 0, 0, 20)
     statusLabel.Position = UDim2.new(0, 0, 0, 35)
@@ -222,6 +272,7 @@ local function createGUI()
     statusLabel.Name = "StatusLabel"
     statusLabel.Parent = mainFrame
 
+    -- ===== AVVIA =====
     local startBtn = Instance.new("TextButton")
     startBtn.Size = UDim2.new(0, 90, 0, 30)
     startBtn.Position = UDim2.new(0, 10, 0, 65)
@@ -235,6 +286,7 @@ local function createGUI()
     btnCorner1.CornerRadius = UDim.new(0, 4)
     btnCorner1.Parent = startBtn
 
+    -- ===== FERMA =====
     local stopBtn = Instance.new("TextButton")
     stopBtn.Size = UDim2.new(0, 90, 0, 30)
     stopBtn.Position = UDim2.new(0, 110, 0, 65)
@@ -248,6 +300,7 @@ local function createGUI()
     btnCorner2.CornerRadius = UDim.new(0, 4)
     btnCorner2.Parent = stopBtn
 
+    -- ===== PULSANTI =====
     startBtn.MouseButton1Click:Connect(function()
         local char = player.Character
         if char and char:FindFirstChild("HumanoidRootPart") then
@@ -280,7 +333,7 @@ player.CharacterAdded:Connect(function(char)
     
     if farmingRunning then
         enableFly(char)
-        restartFarming = true  -- FORZA IL RESTART DEL CICLO
+        restartFarming = true
         print("🔄 Volo riattivato, farming in esecuzione...")
     end
 end)
@@ -336,7 +389,6 @@ spawn(function()
         if restartFarming then
             restartFarming = false
             wait(0.5)
-            -- Il loop ricomincia dall'inizio
         end
 
         -- ===== CICLO DI FARMING =====
@@ -422,7 +474,8 @@ spawn(function()
     end
 end)
 
-print("✅ Farming FLY STABILE + AUTO-AVVIO DOPO RESET caricato!")
+print("✅ Farming FLY STABILE + DRAGGABILE + AUTO-AVVIO caricato!")
+print("   - GUI draggabile (trascina con il mouse)")
 print("   - GUI si ricrea automaticamente al respawn")
-print("   - Farming riparte automaticamente se era attivo (senza premere F)")
+print("   - Farming riparte automaticamente se era attivo")
 print("   - Premi F per avviare/fermare")
