@@ -3,8 +3,9 @@
   - Il personaggio rimane sospeso in aria senza cadere
   - Movimento fluido e controllato
   - PAUSA DI 1 SECONDO SU OGNI FASE
-  - GUI si ricrea dopo la morte
-  - Auto-riavvio dopo il reset
+  - AL BAULE: rimane lì, aspetta ricompensa e reset
+  - GUI si ricrea AUTOMATICAMENTE al respawn
+  - AUTO-AVVIO dopo il reset (NON devi premere Ferma/Avvia)
   - Tasto F per avviare/fermare
 ]]
 
@@ -14,6 +15,7 @@ local statusLabel = nil
 local screenGui = nil
 local flyBodyVelocity = nil
 local flyBodyPosition = nil
+local restartFarming = false  -- FLAG PER FORZARE IL RESTART
 
 -- ===== COORDINATE =====
 local startPos = Vector3.new(-483.83, 9.69, 293.12)
@@ -31,42 +33,8 @@ local stages = {
 }
 local chestPos = Vector3.new(-55.66, -360.05, 9488.53)
 
--- ===== FUNZIONE PER ATTIVARE IL VOLO STABILE =====
-local function enableFly(char)
-    if not char then return end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return end
-    
-    -- Rimuovi eventuali fly precedenti
-    if flyBodyVelocity then flyBodyVelocity:Destroy() end
-    if flyBodyPosition then flyBodyPosition:Destroy() end
-    
-    -- Crea un BodyVelocity per tenere il personaggio in aria
-    flyBodyVelocity = Instance.new("BodyVelocity")
-    flyBodyVelocity.Velocity = Vector3.new(0, 0, 0)
-    flyBodyVelocity.MaxForce = Vector3.new(4000, 4000, 4000)
-    flyBodyVelocity.Parent = root
-    
-    -- Crea un BodyPosition per mantenere l'altezza (anti-caduta)
-    flyBodyPosition = Instance.new("BodyPosition")
-    flyBodyPosition.MaxForce = Vector3.new(4000, 4000, 4000)
-    flyBodyPosition.D = 500
-    flyBodyPosition.P = 5000
-    flyBodyPosition.Position = root.Position
-    flyBodyPosition.Parent = root
-    
-    -- Disabilita la gravità per il personaggio
-    local humanoid = char:FindFirstChild("Humanoid")
-    if humanoid then
-        humanoid.PlatformStand = true
-        humanoid.Sit = true  -- lo mette in posizione "seduto" ma in aria
-    end
-    
-    print("🕊️ Volo stabile attivato!")
-end
-
--- ===== FUNZIONE PER DISATTIVARE IL VOLO =====
-local function disableFly()
+-- ===== FUNZIONE PER PULIRE IL VOLO VECCHIO =====
+local function cleanFly()
     if flyBodyVelocity then
         flyBodyVelocity:Destroy()
         flyBodyVelocity = nil
@@ -75,6 +43,38 @@ local function disableFly()
         flyBodyPosition:Destroy()
         flyBodyPosition = nil
     end
+end
+
+-- ===== FUNZIONE PER ATTIVARE IL VOLO STABILE =====
+local function enableFly(char)
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    
+    cleanFly()
+    
+    flyBodyVelocity = Instance.new("BodyVelocity")
+    flyBodyVelocity.Velocity = Vector3.new(0, 0, 0)
+    flyBodyVelocity.MaxForce = Vector3.new(4000, 4000, 4000)
+    flyBodyVelocity.Parent = root
+    
+    flyBodyPosition = Instance.new("BodyPosition")
+    flyBodyPosition.MaxForce = Vector3.new(4000, 4000, 4000)
+    flyBodyPosition.D = 500
+    flyBodyPosition.P = 5000
+    flyBodyPosition.Position = root.Position
+    flyBodyPosition.Parent = root
+    
+    local humanoid = char:FindFirstChild("Humanoid")
+    if humanoid then
+        humanoid.PlatformStand = true
+        humanoid.Sit = true
+    end
+end
+
+-- ===== FUNZIONE PER DISATTIVARE IL VOLO =====
+local function disableFly()
+    cleanFly()
     local char = player.Character
     if char then
         local humanoid = char:FindFirstChild("Humanoid")
@@ -83,10 +83,9 @@ local function disableFly()
             humanoid.Sit = false
         end
     end
-    print("🛑 Volo disattivato")
 end
 
--- ===== FUNZIONE DI VOLO FLUIDO (con fly attivo) =====
+-- ===== FUNZIONE DI VOLO FLUIDO =====
 local function flyTo(targetPos, speed)
     speed = speed or 35
     local char = player.Character
@@ -94,8 +93,7 @@ local function flyTo(targetPos, speed)
     local root = char:FindFirstChild("HumanoidRootPart")
     if not root then return false end
     
-    -- Assicura che il volo sia attivo
-    if not flyBodyVelocity or not flyBodyPosition then
+    if not flyBodyVelocity or not flyBodyVelocity.Parent or not flyBodyPosition or not flyBodyPosition.Parent then
         enableFly(char)
     end
     
@@ -108,12 +106,12 @@ local function flyTo(targetPos, speed)
     
     for i = 1, steps do
         if not farmingRunning then return false end
+        if restartFarming then return false end  -- ESCE SE DEVE RESTARTARE
         local alpha = i / steps
         local eased = alpha * alpha * (3 - 2 * alpha)
         local newPos = startPos:lerp(targetPos, eased)
         
-        -- Aggiorna la posizione del BodyPosition per mantenere l'altezza
-        if flyBodyPosition then
+        if flyBodyPosition and flyBodyPosition.Parent then
             flyBodyPosition.Position = newPos
         end
         root.CFrame = CFrame.new(newPos)
@@ -121,7 +119,7 @@ local function flyTo(targetPos, speed)
     end
     
     root.CFrame = CFrame.new(targetPos)
-    if flyBodyPosition then
+    if flyBodyPosition and flyBodyPosition.Parent then
         flyBodyPosition.Position = targetPos
     end
     return true
@@ -131,13 +129,56 @@ end
 local function waitForCharacter()
     local char = player.Character
     while not char do
+        if restartFarming then return nil end
         wait(0.5)
         char = player.Character
     end
     while not char:FindFirstChild("HumanoidRootPart") do
+        if restartFarming then return nil end
         wait(0.2)
     end
     return char
+end
+
+-- ===== FUNZIONE PER ASPETTARE IL RESET (MORTE) =====
+local function waitForReset()
+    if statusLabel then statusLabel.Text = "💀 Attendo reset..." end
+    print("💀 In attesa del reset del personaggio...")
+    
+    local char = player.Character
+    while char and farmingRunning do
+        if restartFarming then return end
+        wait(0.5)
+        char = player.Character
+    end
+    
+    if not farmingRunning then return end
+    
+    if statusLabel then statusLabel.Text = "⏳ Respawn in corso..." end
+    print("⏳ Personaggio morto, attendo respawn...")
+    
+    cleanFly()
+    
+    while not player.Character and farmingRunning do
+        if restartFarming then return end
+        wait(0.5)
+    end
+    
+    if not farmingRunning then return end
+    
+    local newChar = player.Character
+    while newChar and not newChar:FindFirstChild("HumanoidRootPart") and farmingRunning do
+        if restartFarming then return end
+        wait(0.2)
+        newChar = player.Character
+    end
+    
+    if farmingRunning then
+        if statusLabel then statusLabel.Text = "🔄 Respawn completato!" end
+        print("🔄 Personaggio respawnato, riavvio del farming")
+        restartFarming = true  -- <--- FORZA IL RESTART
+        wait(1)
+    end
 end
 
 -- ===== CREA GUI =====
@@ -164,7 +205,7 @@ local function createGUI()
     title.Size = UDim2.new(1, 0, 0, 30)
     title.Position = UDim2.new(0, 0, 0, 5)
     title.BackgroundTransparency = 1
-    title.Text = "Auto farm Reda"  -- <--- TITOLO CAMBIATO
+    title.Text = "Auto farm Reda"
     title.TextColor3 = Color3.fromRGB(255, 255, 255)
     title.TextSize = 18
     title.Font = Enum.Font.GothamBold
@@ -211,21 +252,38 @@ local function createGUI()
         local char = player.Character
         if char and char:FindFirstChild("HumanoidRootPart") then
             startPos = char.HumanoidRootPart.Position
-            -- Attiva il volo stabile
             enableFly(char)
         end
+        restartFarming = false
         farmingRunning = true
         if statusLabel then statusLabel.Text = "▶ Avviato!" end
-        print("▶ Farming avviato (fly stabile)")
+        print("▶ Farming avviato")
     end)
 
     stopBtn.MouseButton1Click:Connect(function()
         farmingRunning = false
+        restartFarming = false
         disableFly()
         if statusLabel then statusLabel.Text = "⏹ Fermato!" end
         print("⏹ Farming fermato")
     end)
 end
+
+-- ===== EVENTO: RICREA LA GUI AL RESPAWN =====
+player.CharacterAdded:Connect(function(char)
+    cleanFly()
+    createGUI()
+    if statusLabel then
+        statusLabel.Text = farmingRunning and "▶ Avviato!" or "⏹ Fermato!"
+    end
+    print("🔄 GUI ricreata automaticamente al respawn")
+    
+    if farmingRunning then
+        enableFly(char)
+        restartFarming = true  -- FORZA IL RESTART DEL CICLO
+        print("🔄 Volo riattivato, farming in esecuzione...")
+    end
+end)
 
 -- ===== KEYBIND (Tasto F) =====
 game:GetService("UserInputService").InputBegan:Connect(function(input, gameProcessed)
@@ -233,6 +291,7 @@ game:GetService("UserInputService").InputBegan:Connect(function(input, gameProce
     if input.KeyCode == Enum.KeyCode.F then
         farmingRunning = not farmingRunning
         if farmingRunning then
+            restartFarming = false
             local char = player.Character
             if char and char:FindFirstChild("HumanoidRootPart") then
                 startPos = char.HumanoidRootPart.Position
@@ -240,6 +299,7 @@ game:GetService("UserInputService").InputBegan:Connect(function(input, gameProce
             end
             if statusLabel then statusLabel.Text = "▶ Avviato!" end
         else
+            restartFarming = false
             disableFly()
             if statusLabel then statusLabel.Text = "⏹ Fermato!" end
         end
@@ -252,7 +312,7 @@ createGUI()
 
 spawn(function()
     while true do
-        -- Se la GUI è stata distrutta, la ricrea
+        -- Ricrea la GUI se distrutta
         if not screenGui or not screenGui.Parent then
             createGUI()
             if statusLabel then
@@ -263,6 +323,7 @@ spawn(function()
         -- Aspetta che il farming sia attivo
         while not farmingRunning do
             wait(1)
+            if restartFarming then restartFarming = false end
             if not screenGui or not screenGui.Parent then
                 createGUI()
                 if statusLabel then
@@ -271,54 +332,62 @@ spawn(function()
             end
         end
 
-        -- ===== CICLO DI FARMING (FLY STABILE + PAUSA 1 SEC) =====
+        -- Se c'è un restart da fare, esce e ricomincia
+        if restartFarming then
+            restartFarming = false
+            wait(0.5)
+            -- Il loop ricomincia dall'inizio
+        end
+
+        -- ===== CICLO DI FARMING =====
         local success = pcall(function()
             -- 1. Aspetta il personaggio
             if statusLabel then statusLabel.Text = "📍 Aspetto personaggio..." end
             local char = waitForCharacter()
-            if not farmingRunning then return end
+            if not char or not farmingRunning then return end
             
-            -- 2. Attiva il volo se non è già attivo
-            if not flyBodyVelocity or not flyBodyPosition then
+            -- 2. Attiva il volo
+            if not flyBodyVelocity or not flyBodyVelocity.Parent or not flyBodyPosition or not flyBodyPosition.Parent then
                 enableFly(char)
             end
             
             -- 3. Vola alla partenza
             if statusLabel then statusLabel.Text = "🕊️ Volo alla partenza..." end
             flyTo(startPos, 40)
-            if not farmingRunning then return end
+            if not farmingRunning or restartFarming then return end
             wait(0.5)
 
-            -- 4. Percorri gli stage con PAUSA di 1 secondo su ogni fase
+            -- 4. Percorri gli stage (pausa 1 secondo)
             for i, pos in ipairs(stages) do
-                if not farmingRunning then return end
+                if not farmingRunning or restartFarming then return end
                 if statusLabel then statusLabel.Text = "🕊️ Fase " .. i .. " (attesa 1 sec)" end
                 flyTo(pos, 45)
-                if not farmingRunning then return end
-                wait(0.3)   -- breve pausa dopo l'arrivo
-                if not farmingRunning then return end
-                wait(1)     -- <--- PAUSA DI 1 SECONDO SU OGNI FASE
-                if not farmingRunning then return end
+                if not farmingRunning or restartFarming then return end
+                wait(0.3)
+                if not farmingRunning or restartFarming then return end
+                wait(1)
+                if not farmingRunning or restartFarming then return end
             end
-            if not farmingRunning then return end
+            if not farmingRunning or restartFarming then return end
 
             -- 5. Vola al baule
             if statusLabel then statusLabel.Text = "🕊️ Volo al baule..." end
             flyTo(chestPos, 50)
-            if not farmingRunning then return end
+            if not farmingRunning or restartFarming then return end
             wait(1.5)
 
             -- 6. Aspetta la ricompensa
+            if statusLabel then statusLabel.Text = "💰 In attesa ricompensa..." end
             if player:FindFirstChild("leaderstats") then
                 local coins = player.leaderstats:FindFirstChild("Coins") or 
                               player.leaderstats:FindFirstChild("Money")
                 if coins then
                     local startCoins = coins.Value
                     for _ = 1, 15 do
-                        if not farmingRunning then return end
+                        if not farmingRunning or restartFarming then return end
                         wait(1)
                         if coins.Value > startCoins then
-                            if statusLabel then statusLabel.Text = "✅ Ricompensa!" end
+                            if statusLabel then statusLabel.Text = "✅ Ricompensa ottenuta!" end
                             break
                         end
                     end
@@ -326,46 +395,25 @@ spawn(function()
             else
                 wait(10)
             end
+            if not farmingRunning or restartFarming then return end
+
+            -- 7. Resta al baule e aspetta il reset
+            if statusLabel then statusLabel.Text = "💀 Attendo reset..." end
+            print("💀 Attendo che il personaggio muoia per resettarsi...")
+            waitForReset()
             if not farmingRunning then return end
-
-            -- 7. Vola alla partenza
-            if statusLabel then statusLabel.Text = "🕊️ Rientro..." end
-            flyTo(startPos, 40)
-            if not farmingRunning then return end
-            wait(0.5)
-
-            -- 8. Clicca "Reclama"
-            for _, v in pairs(player.PlayerGui:GetDescendants()) do
-                if v:IsA("TextButton") then
-                    local txt = string.lower(v.Text or "")
-                    if string.find(txt, "reclama") or string.find(txt, "claim") then
-                        v:Click()
-                        wait(0.3)
-                        break
-                    end
-                end
-            end
-
-            if statusLabel then statusLabel.Text = "⏳ Ciclo completato!" end
-            print("✅ Ciclo completato (fly stabile + pausa 1s)")
-            wait(2)
+            
+            -- 8. Personaggio respawnato, il ciclo ricomincia
+            if statusLabel then statusLabel.Text = "🔄 Reset completato, riavvio..." end
+            print("🔄 Personaggio resettato, ricomincio il farming")
+            wait(1)
         end)
 
-        -- ===== GESTIONE DEL RESET (morte) =====
+        -- Gestione errori
         if not success then
-            if statusLabel then statusLabel.Text = "⚠️ Attendo respawn..." end
-            print("Errore o reset, attendo il respawn...")
-            disableFly()  -- pulisce il fly vecchio
-            local char = player.Character
-            while not char and farmingRunning do
-                wait(0.5)
-                char = player.Character
-            end
-            if farmingRunning and char then
-                if statusLabel then statusLabel.Text = "🔄 Riavvio..." end
-                print("🔄 Personaggio respawnato, riavvio...")
-                wait(1)
-            end
+            if statusLabel then statusLabel.Text = "⚠️ Errore, attendo..." end
+            print("Errore nel farming, attendo 3 secondi...")
+            wait(3)
         end
 
         if not farmingRunning then
@@ -374,7 +422,7 @@ spawn(function()
     end
 end)
 
-print("✅ Farming FLY STABILE + PAUSA 1 SECONDO caricato!")
-print("   - Il personaggio rimane sospeso in aria (come Infinite Yield)")
-print("   - Su ogni fase aspetta 1 secondo")
+print("✅ Farming FLY STABILE + AUTO-AVVIO DOPO RESET caricato!")
+print("   - GUI si ricrea automaticamente al respawn")
+print("   - Farming riparte automaticamente se era attivo (senza premere F)")
 print("   - Premi F per avviare/fermare")
